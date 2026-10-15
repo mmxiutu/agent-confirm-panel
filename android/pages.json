@@ -1,0 +1,30 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationStyle": "custom",
+        "backgroundColor": "#050505",
+        "app-plus": {
+          "titleNView": false,
+          "bounce": "none"
+        }
+      }
+    },
+    {
+      "path": "pages/settings/settings",
+      "style": {
+        "navigationBarTitleText": "连接设置",
+        "navigationBarBackgroundColor": "#111111",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#050505"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "Agent Confirm",
+    "navigationBarBackgroundColor": "#111111",
+    "backgroundColor": "#050505"
+  }
+}
