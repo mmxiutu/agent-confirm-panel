@@ -172,6 +172,13 @@ class Panel:
         log(f"decision request_id={request_id} action={action}")
         return 200, {"request_id": request_id, "action": action}
 
+    def status(self) -> dict:
+        return {
+            "ok": True,
+            "clients": len(self.clients),
+            "pending": self.pending is not None,
+        }
+
     async def handle_action(self, body: dict, peer_ip: str) -> tuple[int, dict]:
         if peer_ip not in LOOPBACK:
             log(f"action rejected remote peer={peer_ip}")
@@ -310,6 +317,12 @@ class DemuxProtocol(asyncio.Protocol):
             address = self.transport.get_extra_info("peername")
             if address:
                 peer = address[0]
+        if self.method == "GET" and self.path == "/status":
+            if peer not in LOOPBACK:
+                self._send(403, "Forbidden", {"error": "status is local only"})
+                return
+            self._send(200, "OK", self.panel.status())
+            return
         if self.method != "POST" or self.path not in {"/push", "/action"}:
             self._send(404, "Not Found", {"error": "not found"})
             return

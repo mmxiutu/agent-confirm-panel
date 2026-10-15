@@ -1,8 +1,9 @@
 """Cursor command hook.
 
-Reads a beforeShellExecution or beforeMCPExecution payload from stdin,
-blocks on the local panel server, and writes an allow or deny decision
-to stdout. Anything other than an explicit approve becomes deny.
+Reads a beforeShellExecution or beforeMCPExecution payload from stdin.
+When the panel server is running and a phone is connected, the hook waits
+for the phone and returns allow or deny. Otherwise it returns ask, and
+Cursor keeps its own confirmation behavior.
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import urllib.error
 import urllib.request
 
 PUSH_URL = "http://127.0.0.1:8765/push"
+STATUS_URL = "http://127.0.0.1:8765/status"
 HTTP_TIMEOUT_SECONDS = 175
+STATUS_TIMEOUT_SECONDS = 2
 HIGH_RISK_MARKERS = (
     "rm ",
     "rm\t",
@@ -81,6 +84,22 @@ def build_push(hook_input: dict) -> dict:
     }
 
 
+def panel_is_ready() -> bool:
+    request = urllib.request.Request(STATUS_URL, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=STATUS_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+        return False
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return False
+    try:
+        clients = int(payload.get("clients") or 0)
+    except (TypeError, ValueError):
+        return False
+    return clients > 0
+
+
 def push(body: dict) -> dict:
     raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
@@ -136,6 +155,9 @@ def main() -> None:
         return
     if is_panel_server_launch(hook_input):
         emit("allow")
+        return
+    if not panel_is_ready():
+        emit("ask", "手机面板未连接，改由 Cursor 确认。")
         return
     try:
         result = push(build_push(hook_input))
