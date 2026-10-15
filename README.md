@@ -1,11 +1,11 @@
 # agent-confirm-panel
 
-在旁边的安卓手机上批准或拒绝 Cursor Agent 的终端命令和 MCP 调用。手机不在身边时，这些操作仍由 Cursor 自己确认。
+在旁边的手机上批准或拒绝 Cursor Agent 的终端命令和 MCP 调用。手机不在身边时，这些操作仍由 Cursor 自己确认。
 
 仓库里有两个程序：
 
 - `windows/`：跑在电脑上的 Python 服务，以及 Cursor 钩子脚本。
-- `android/`：uni-app x 工程。用 HBuilderX 打开后运行到安卓手机，界面由原生渲染，不再使用旧的 uni-app WebView。
+- `app/`：uni-app x 客户端。同一套工程可以编译到安卓、iOS 和鸿蒙。当前真机目标仍是红米 Note 11T Pro，iOS 和鸿蒙还没有跑过。
 
 Hermes 不在本仓库范围内。语音按钮只占位，还不能识别指令。
 
@@ -45,9 +45,9 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"request_id\":\"日�
 
 ## 手机端
 
-用 HBuilderX 打开 `android` 目录。`manifest.json` 里有 `uni-app-x` 节点，项目应识别为 uni-app x（圆形图标）。若仍被识别成旧版 uni-app，在项目上右键选择重新识别项目类型。运行时使用 uni-app x 的 Android 标准基座，不要用旧的 uni-app 基座。
+用 HBuilderX 打开 `app` 目录。`manifest.json` 里有 `uni-app-x` 节点，项目应识别为 uni-app x（圆形图标）。若仍被识别成旧版 uni-app，在项目上右键选择重新识别项目类型。
 
-在 App 的设置页填写电脑局域网 IP 和端口 `8765`。连接使用局域网明文 `ws://`，工程里的 `AndroidManifest.xml` 已允许明文流量。
+红米上运行时，选择 uni-app x 的 Android 标准基座，不要用旧的 uni-app 基座。在 App 的设置页填写电脑局域网 IP 和端口 `8765`。连接使用局域网明文 `ws://`，`app/AndroidManifest.xml` 已允许安卓明文流量。iOS 和鸿蒙要另选对应基座；常亮目前走的是安卓窗口标志，换平台时需要再核对。
 
 手机上还需要手动打开这些权限，程序绕不过系统限制：允许网络与震动、关闭该 App 的电池优化、关闭自动锁屏。连接成功后，App 会保持屏幕常亮；断开后释放。语音按钮仍未实现。
 
@@ -90,7 +90,7 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"request_id\":\"日�
    手机面板已通过 WebSocket 连上时，命令推到手机，同意返回 allow，拒绝、终止或超时返回 deny。
    服务没启动，或没有任何手机连接时，钩子返回 ask，让 Cursor 使用自己的确认逻辑，不要直接 deny。
 4. 仅启动 windows/server.py 的命令直接 allow，避免服务停着时无法重新打开。
-5. 不要引入 FastAPI。不要做网页版。安卓端保持 uni-app x，不要改回旧版 uni-app。
+5. 不要引入 FastAPI。不要做网页版。客户端在 app 目录，保持 uni-app x，不要改回旧版 uni-app，也不要把目录改回 android。
 
 改完后告诉我：hooks.json 的位置、启动服务的命令、手机上要填的局域网 IP。
 ```
