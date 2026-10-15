@@ -1,0 +1,93 @@
+<template>
+  <view class="settings">
+    <text class="hint">手机和电脑要在同一个局域网。这里填电脑的局域网 IP，不要填 127.0.0.1。</text>
+    <text class="label">电脑 IP</text>
+    <input class="field" v-model="host" placeholder="例如 192.168.1.20" />
+    <text class="label">端口</text>
+    <input class="field" v-model="port" type="number" placeholder="8765" />
+    <view class="save" @click="save">
+      <text class="save-text">保存</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref } from "vue";
+import { getServer, setServer } from "../../common/config.uts";
+import { ensure } from "../../common/panel.uts";
+
+const host = ref("");
+const port = ref("8765");
+
+onShow(() => {
+  const server = getServer();
+  host.value = server.host;
+  port.value = server.port;
+});
+
+function save(): void {
+  const hostText = host.value.trim();
+  const portText = `${port.value}`.trim();
+  const portNumber = parseInt(portText);
+  if (hostText == "" || isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
+    uni.showToast({
+      title: "请填写有效的 IP 和端口",
+      icon: "none",
+    });
+    return;
+  }
+  setServer(hostText, portText);
+  ensure();
+  uni.showToast({
+    title: "已保存",
+    icon: "none",
+  });
+  setTimeout(() => {
+    uni.navigateBack({});
+  }, 250);
+}
+</script>
+
+<style>
+.settings {
+  flex: 1;
+  padding: 20px 18px;
+  background-color: #050505;
+  flex-direction: column;
+}
+
+.hint {
+  font-size: 14px;
+  line-height: 22px;
+  color: #c8c8c8;
+}
+
+.label {
+  margin-top: 18px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #f3f3f3;
+}
+
+.field {
+  height: 44px;
+  padding: 0 12px;
+  background-color: #161616;
+  border: 1px solid #333333;
+  color: #f3f3f3;
+  font-size: 16px;
+}
+
+.save {
+  margin-top: 24px;
+  height: 48px;
+  background-color: #1d6b3a;
+  align-items: center;
+  justify-content: center;
+}
+
+.save-text {
+  color: #f3f3f3;
+  font-size: 16px;
+}
+</style>

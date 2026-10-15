@@ -5,10 +5,7 @@
       "style": {
         "navigationStyle": "custom",
         "backgroundColor": "#050505",
-        "app-plus": {
-          "titleNView": false,
-          "bounce": "none"
-        }
+        "navigationBarTextStyle": "white"
       }
     },
     {

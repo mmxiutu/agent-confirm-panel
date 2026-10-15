@@ -1,0 +1,10 @@
+<script setup lang="uts">
+onLaunch(() => {});
+</script>
+
+<style>
+.page {
+  flex: 1;
+  background-color: #050505;
+}
+</style>

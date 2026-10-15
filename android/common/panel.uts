@@ -1,0 +1,240 @@
+import { getServer } from "./config.uts";
+import { setAwake } from "./awake.uts";
+
+export type PanelSnapshot = {
+  connected: boolean;
+  status: string;
+  statusLabel: string;
+  summary: string;
+  detail: string;
+  requestId: string;
+  command: string;
+  filePath: string;
+  riskLevel: string;
+  tool: string;
+};
+
+type PanelListener = (snap: PanelSnapshot) => void;
+
+let connected = false;
+let status = "idle";
+let summary = "等待 Agent 任务";
+let detailText = "";
+let requestId = "";
+let commandText = "";
+let filePath = "";
+let riskLevel = "normal";
+let toolName = "";
+
+const listeners: PanelListener[] = [];
+let reconnectTimer: number = 0;
+let socketOpen = false;
+let connecting = false;
+let activeUrl = "";
+let wantConnect = false;
+let audio: InnerAudioContext | null = null;
+let socketTask: SocketTask | null = null;
+
+function labelOf(value: string): string {
+  if (value == "thinking") return "思考中";
+  if (value == "outputting") return "输出中";
+  if (value == "waiting_confirm") return "等待审批";
+  if (value == "running") return "执行中";
+  if (value == "done") return "已完成";
+  if (value == "error") return "异常";
+  if (value == "timeout") return "审批超时";
+  if (value == "rejected") return "已拒绝";
+  if (value == "idle") return "空闲";
+  return value;
+}
+
+function snapshot(): PanelSnapshot {
+  return {
+    connected: connected,
+    status: status,
+    statusLabel: labelOf(status),
+    summary: summary,
+    detail: detailText,
+    requestId: requestId,
+    command: commandText,
+    filePath: filePath,
+    riskLevel: riskLevel,
+    tool: toolName,
+  };
+}
+
+function emit(): void {
+  const current = snapshot();
+  for (let i = 0; i < listeners.length; i++) {
+    listeners[i](current);
+  }
+}
+
+function serverUrl(): string {
+  const server = getServer();
+  return `ws://${server.host}:${server.port}`;
+}
+
+function readString(obj: UTSJSONObject, key: string): string {
+  const value = obj[key];
+  if (value == null) {
+    return "";
+  }
+  return `${value}`;
+}
+
+function applyMessage(text: string): void {
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return;
+  }
+  if (parsed == null) {
+    return;
+  }
+  const message = parsed as UTSJSONObject;
+  if (readString(message, "type") != "state_update") {
+    return;
+  }
+  const payloadValue = message["payload"];
+  if (payloadValue == null) {
+    return;
+  }
+  const payload = payloadValue as UTSJSONObject;
+  status = readString(payload, "status");
+  if (status == "") {
+    status = "idle";
+  }
+  summary = readString(payload, "summary");
+  detailText = readString(payload, "detail");
+  requestId = readString(payload, "request_id");
+  const extraValue = payload["extra"];
+  if (extraValue != null) {
+    const extra = extraValue as UTSJSONObject;
+    commandText = readString(extra, "command");
+    filePath = readString(extra, "file_path");
+    riskLevel = readString(extra, "risk_level");
+    if (riskLevel == "") {
+      riskLevel = "normal";
+    }
+    toolName = readString(extra, "tool");
+  }
+  emit();
+}
+
+function scheduleReconnect(): void {
+  connecting = false;
+  if (!wantConnect || reconnectTimer != 0) {
+    return;
+  }
+  socketOpen = false;
+  connected = false;
+  setAwake(false);
+  emit();
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = 0;
+    if (wantConnect && !socketOpen) {
+      openSocket();
+    }
+  }, 2000);
+}
+
+function bindSocket(task: SocketTask): void {
+  task.onOpen((_result) => {
+    if (reconnectTimer != 0) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = 0;
+    }
+    connecting = false;
+    socketOpen = true;
+    connected = true;
+    setAwake(true);
+    emit();
+  });
+  task.onMessage((event) => {
+    const raw = event.data;
+    if (typeof raw != "string") {
+      return;
+    }
+    applyMessage(raw as string);
+  });
+  task.onClose((_result) => {
+    socketTask = null;
+    scheduleReconnect();
+  });
+  task.onError((_result) => {
+    socketTask = null;
+    scheduleReconnect();
+  });
+}
+
+function openSocket(): void {
+  if (connecting || socketOpen) {
+    return;
+  }
+  connecting = true;
+  activeUrl = serverUrl();
+  const task = uni.connectSocket({
+    url: activeUrl,
+    fail: (_error) => {
+      scheduleReconnect();
+    },
+  });
+  socketTask = task;
+  bindSocket(task);
+}
+
+export function subscribe(listener: PanelListener): () => void {
+  listeners.push(listener);
+  listener(snapshot());
+  return () => {
+    const index = listeners.indexOf(listener);
+    if (index >= 0) {
+      listeners.splice(index, 1);
+    }
+  };
+}
+
+export function ensure(): void {
+  wantConnect = true;
+  const nextUrl = serverUrl();
+  if ((socketOpen || connecting) && nextUrl == activeUrl) {
+    return;
+  }
+  if (socketOpen && socketTask != null) {
+    activeUrl = nextUrl;
+    socketTask.close({});
+    return;
+  }
+  openSocket();
+}
+
+export function sendAction(action: string, remark: string): boolean {
+  if (!socketOpen || socketTask == null) {
+    return false;
+  }
+  const body = {
+    type: "user_action",
+    request_id: requestId,
+    action: action,
+    remark: remark,
+  } as UTSJSONObject;
+  socketTask.send({
+    data: JSON.stringify(body),
+  });
+  return true;
+}
+
+export function playClick(): void {
+  if (audio == null) {
+    audio = uni.createInnerAudioContext();
+    audio.src = "/static/click.wav";
+  }
+  audio.stop();
+  audio.play();
+}
+
+export function vibrateShort(): void {
+  uni.vibrateShort({});
+}

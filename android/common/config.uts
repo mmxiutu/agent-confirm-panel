@@ -1,0 +1,33 @@
+const STORAGE_KEY = "agent_panel_server";
+
+export type ServerConfig = {
+  host: string;
+  port: string;
+};
+
+export function getServer(): ServerConfig {
+  const saved = uni.getStorageSync(STORAGE_KEY);
+  if (saved != null && saved != "") {
+    const obj = saved as UTSJSONObject;
+    const host = obj["host"];
+    const port = obj["port"];
+    if (host != null && port != null) {
+      return {
+        host: `${host}`.trim(),
+        port: `${port}`.trim(),
+      };
+    }
+  }
+  return {
+    host: "127.0.0.1",
+    port: "8765",
+  };
+}
+
+export function setServer(host: string, port: string): void {
+  const data = {
+    host: host.trim(),
+    port: port.trim(),
+  } as UTSJSONObject;
+  uni.setStorageSync(STORAGE_KEY, data);
+}

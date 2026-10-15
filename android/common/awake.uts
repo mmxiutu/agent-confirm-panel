@@ -1,0 +1,23 @@
+/**
+ * Keep the screen on while the panel is connected.
+ * FLAG_KEEP_SCREEN_ON is 128. This uses the Android window directly so it
+ * works on uni-app x compilers older than the later uni.setKeepScreenOn API.
+ */
+export function setAwake(on: boolean): void {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    return;
+  }
+  activity.runOnUiThread(() => {
+    const current = UTSAndroid.getUniActivity();
+    if (current == null) {
+      return;
+    }
+    const win = current.getWindow();
+    if (on) {
+      win.addFlags(128);
+    } else {
+      win.clearFlags(128);
+    }
+  });
+}

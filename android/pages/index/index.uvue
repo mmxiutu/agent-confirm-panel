@@ -1,0 +1,290 @@
+<template>
+  <view class="page" :class="status">
+    <view class="header">
+      <view class="topline">
+        <text v-if="connected" class="link">已连接</text>
+        <text v-else class="link down">连接断开</text>
+        <text class="gear" @click="openSettings">设置</text>
+      </view>
+      <text class="status">{{ statusLabel }}</text>
+      <text class="summary">{{ summaryText }}</text>
+      <text v-if="requestId != ''" class="request">{{ requestId }}</text>
+    </view>
+
+    <view v-if="detailOpen" class="detail">
+      <text class="detail-line">详情 {{ detailText }}</text>
+      <text class="detail-line">命令 {{ commandText }}</text>
+      <text class="detail-line">路径 {{ filePath }}</text>
+      <text class="detail-line" :class="riskLevel == 'high' ? 'danger' : ''">风险 {{ riskText }}</text>
+    </view>
+
+    <view class="keys">
+      <view class="key" @click="onApprove">
+        <text class="mark">✓</text>
+        <text class="name">同意</text>
+      </view>
+      <view class="key" @click="onReject">
+        <text class="mark">×</text>
+        <text class="name">拒绝</text>
+      </view>
+      <view class="key" @click="onDetail">
+        <text class="mark">☰</text>
+        <text class="name">详情</text>
+      </view>
+      <view class="key" @click="onStop">
+        <text class="mark">■</text>
+        <text class="name">终止</text>
+      </view>
+      <view class="key" @click="onVoice">
+        <text class="mark">♪</text>
+        <text class="name">语音</text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref } from "vue";
+import { ensure, playClick, sendAction, subscribe, vibrateShort } from "../../common/panel.uts";
+
+const connected = ref(false);
+const status = ref("idle");
+const statusLabel = ref("空闲");
+const summaryText = ref("等待 Agent 任务");
+const detailText = ref("无");
+const requestId = ref("");
+const commandText = ref("无");
+const filePath = ref("无");
+const riskLevel = ref("normal");
+const riskText = ref("普通");
+const detailOpen = ref(false);
+let unsubscribe: (() => void) | null = null;
+
+function riskName(level: string): string {
+  if (level == "low") return "低";
+  if (level == "high") return "高";
+  return "普通";
+}
+
+function showOrEmpty(value: string): string {
+  if (value == "") return "无";
+  return value;
+}
+
+onLoad(() => {
+  unsubscribe = subscribe((current) => {
+    connected.value = current.connected;
+    status.value = current.status;
+    statusLabel.value = current.statusLabel;
+    summaryText.value = current.summary == "" ? "等待 Agent 任务" : current.summary;
+    detailText.value = showOrEmpty(current.detail);
+    requestId.value = current.requestId;
+    commandText.value = showOrEmpty(current.command);
+    filePath.value = showOrEmpty(current.filePath);
+    riskLevel.value = current.riskLevel;
+    riskText.value = riskName(current.riskLevel);
+  });
+});
+
+onShow(() => {
+  ensure();
+});
+
+onUnload(() => {
+  if (unsubscribe != null) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+});
+
+function feedback(): void {
+  playClick();
+  vibrateShort();
+}
+
+function requirePending(): boolean {
+  if (connected.value && status.value == "waiting_confirm" && requestId.value != "") {
+    return true;
+  }
+  uni.showToast({
+    title: "当前没有待审批事项",
+    icon: "none",
+  });
+  return false;
+}
+
+function onApprove(): void {
+  feedback();
+  if (!requirePending()) return;
+  sendAction("approve", "");
+}
+
+function onReject(): void {
+  feedback();
+  if (!requirePending()) return;
+  sendAction("reject", "");
+}
+
+function onStop(): void {
+  feedback();
+  if (!requirePending()) return;
+  sendAction("stop_task", "");
+}
+
+function onDetail(): void {
+  feedback();
+  detailOpen.value = !detailOpen.value;
+  if (requestId.value != "") {
+    sendAction("view_detail", "");
+  }
+}
+
+function onVoice(): void {
+  feedback();
+  uni.showToast({
+    title: "语音监听尚未实现",
+    icon: "none",
+  });
+}
+
+function openSettings(): void {
+  uni.navigateTo({ url: "/pages/settings/settings" });
+}
+</script>
+
+<style>
+.page {
+  flex: 1;
+  flex-direction: column;
+  background-color: #2a2a2a;
+}
+
+.waiting_confirm {
+  background-color: #8a2e12;
+}
+
+.error {
+  background-color: #7a1d1d;
+}
+
+.timeout {
+  background-color: #7a1d1d;
+}
+
+.rejected {
+  background-color: #7a1d1d;
+}
+
+.done {
+  background-color: #1d6b3a;
+}
+
+.thinking {
+  background-color: #1a3f78;
+}
+
+.outputting {
+  background-color: #0e5c66;
+}
+
+.running {
+  background-color: #0e5c66;
+}
+
+.idle {
+  background-color: #2a2a2a;
+}
+
+.header {
+  flex: 1;
+  padding: 24px 18px 12px 18px;
+  flex-direction: column;
+}
+
+.topline {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.link {
+  font-size: 14px;
+  color: #f5f5f5;
+}
+
+.down {
+  color: #ffd0d0;
+  font-weight: 700;
+}
+
+.gear {
+  font-size: 14px;
+  color: #f5f5f5;
+  padding: 6px 4px;
+}
+
+.status {
+  margin-top: 24px;
+  font-size: 42px;
+  font-weight: 700;
+  color: #f5f5f5;
+}
+
+.summary {
+  margin-top: 14px;
+  font-size: 18px;
+  color: #f5f5f5;
+}
+
+.request {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #f5f5f5;
+  opacity: 0.7;
+}
+
+.detail {
+  margin: 0 12px 12px 12px;
+  padding: 12px;
+  background-color: rgba(0, 0, 0, 0.35);
+  border: 1px solid #000000;
+  flex-direction: column;
+}
+
+.detail-line {
+  font-size: 14px;
+  line-height: 22px;
+  color: #f5f5f5;
+}
+
+.danger {
+  color: #ffd27a;
+  font-weight: 700;
+}
+
+.keys {
+  height: 110px;
+  flex-direction: row;
+  border-top: 2px solid #000000;
+}
+
+.key {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-right: 2px solid #000000;
+  background-color: rgba(0, 0, 0, 0.18);
+}
+
+.mark {
+  font-size: 24px;
+  color: #f5f5f5;
+}
+
+.name {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #f5f5f5;
+}
+</style>

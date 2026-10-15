@@ -5,7 +5,7 @@
 仓库里有两个程序：
 
 - `windows/`：跑在电脑上的 Python 服务，以及 Cursor 钩子脚本。
-- `android/`：用 HBuilderX 打开的 uni-app Vue3 工程，打包或运行到安卓手机。
+- `android/`：uni-app x 工程。用 HBuilderX 打开后运行到安卓手机，界面由原生渲染，不再使用旧的 uni-app WebView。
 
 Hermes 不在本仓库范围内。语音按钮只占位，还不能识别指令。
 
@@ -45,9 +45,11 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"request_id\":\"日�
 
 ## 手机端
 
-用 HBuilderX 打开 `android` 目录，用标准基座运行到红米等安卓机。在 App 的设置页填写电脑局域网 IP 和端口 `8765`。
+用 HBuilderX 打开 `android` 目录。`manifest.json` 里有 `uni-app-x` 节点，项目应识别为 uni-app x（圆形图标）。若仍被识别成旧版 uni-app，在项目上右键选择重新识别项目类型。运行时使用 uni-app x 的 Android 标准基座，不要用旧的 uni-app 基座。
 
-手机上还需要手动打开这些权限，程序绕不过系统限制：允许麦克风以外的网络与震动、关闭该 App 的电池优化、关闭自动锁屏。连接成功后，App 会尽量保持屏幕常亮；断开后释放。
+在 App 的设置页填写电脑局域网 IP 和端口 `8765`。连接使用局域网明文 `ws://`，工程里的 `AndroidManifest.xml` 已允许明文流量。
+
+手机上还需要手动打开这些权限，程序绕不过系统限制：允许网络与震动、关闭该 App 的电池优化、关闭自动锁屏。连接成功后，App 会保持屏幕常亮；断开后释放。语音按钮仍未实现。
 
 ## 换项目，或换一台电脑
 
@@ -88,7 +90,7 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"request_id\":\"日�
    手机面板已通过 WebSocket 连上时，命令推到手机，同意返回 allow，拒绝、终止或超时返回 deny。
    服务没启动，或没有任何手机连接时，钩子返回 ask，让 Cursor 使用自己的确认逻辑，不要直接 deny。
 4. 仅启动 windows/server.py 的命令直接 allow，避免服务停着时无法重新打开。
-5. 不要引入 FastAPI。不要做网页版。不要改安卓工程的业务范围。
+5. 不要引入 FastAPI。不要做网页版。安卓端保持 uni-app x，不要改回旧版 uni-app。
 
 改完后告诉我：hooks.json 的位置、启动服务的命令、手机上要填的局域网 IP。
 ```

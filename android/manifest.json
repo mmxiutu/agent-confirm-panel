@@ -1,39 +1,72 @@
 {
-  "name": "agent-confirm-panel",
-  "appid": "__UNI__A0C0F001",
-  "description": "Android agent approval panel",
-  "versionName": "0.1.0",
-  "versionCode": "100",
-  "transformPx": false,
-  "vueVersion": "3",
-  "app-plus": {
-    "usingComponents": true,
-    "nvueStyleCompiler": "uni-app",
-    "compilerVersion": 3,
-    "splashscreen": {
-      "alwaysShowBeforeRender": true,
-      "waiting": true,
-      "autoclose": true,
-      "delay": 0
-    },
-    "statusbar": {
-      "immersed": true,
-      "style": "light",
-      "background": "#050505"
-    },
-    "modules": {},
-    "distribute": {
-      "android": {
-        "permissions": [
-          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
-          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
-          "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
-          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
-          "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
-        ]
-      },
-      "ios": {},
-      "sdkConfigs": {}
-    }
-  }
+	"name": "agent-confirm-panel",
+	"appid": "__UNI__A0C0F001",
+	"description": "Android agent approval panel",
+	"versionName": "0.1.0",
+	"versionCode": 100,
+	"uni-app-x": {
+		"flex-direction": "column"
+	},
+	"vueVersion": "3",
+	"app": {
+		"defaultAppTheme": "dark",
+		"distribute": {
+			"android": {
+				"permissions": [
+					"<uses-permission android:name=\"android.permission.INTERNET\"/>",
+					"<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+					"<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+					"<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+					"<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
+				],
+				"minSdkVersion": 21,
+				"targetSdkVersion": 30,
+				"abiFilters": [
+					"armeabi-v7a",
+					"arm64-v8a"
+				]
+			},
+			"modules": {
+				"uni-websocket": {}
+			}
+		}
+	},
+	"app-android": {
+		"distribute": {
+			"permissions": [
+				"<uses-permission android:name=\"android.permission.INTERNET\"/>",
+				"<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+				"<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+				"<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+				"<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
+			],
+			"minSdkVersion": 21,
+			"targetSdkVersion": 30,
+			"abiFilters": [
+				"armeabi-v7a",
+				"arm64-v8a"
+			],
+			"modules": {
+				"uni-websocket": {}
+			},
+			"icons": {},
+			"splashScreens": {
+				"default": {}
+			}
+		}
+	},
+	"app-ios": {
+		"distribute": {
+			"modules": {
+				"uni-websocket": {}
+			},
+			"icons": {},
+			"splashScreens": {}
+		}
+	},
+	"web": {
+		"router": {
+			"mode": ""
+		}
+	}
 }
