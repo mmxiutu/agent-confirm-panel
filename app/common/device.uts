@@ -1,0 +1,32 @@
+import BatteryManager from "android.os.BatteryManager";
+import Context from "android.content.Context";
+
+function twoDigits(value: number): string {
+  const text = value.toString();
+  if (text.length >= 2) {
+    return text;
+  }
+  return "0" + text;
+}
+
+export function currentClock(): string {
+  const now = new Date();
+  return twoDigits(now.getHours()) + ":" + twoDigits(now.getMinutes());
+}
+
+export function readBatteryPercent(): number {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    return -1;
+  }
+  const service = activity.getSystemService(Context.BATTERY_SERVICE);
+  if (service == null) {
+    return -1;
+  }
+  const manager = service as BatteryManager;
+  const percent = manager.getIntProperty(4);
+  if (percent < 0) {
+    return -1;
+  }
+  return percent;
+}

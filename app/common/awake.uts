@@ -1,8 +1,24 @@
 /**
  * Keep the screen on while the panel is connected.
- * FLAG_KEEP_SCREEN_ON is 128. This uses the Android window directly so it
- * works on uni-app x compilers older than the later uni.setKeepScreenOn API.
+ * FLAG_KEEP_SCREEN_ON is 128. FLAG_FULLSCREEN is 1024.
+ * 5380 is FULLSCREEN + LAYOUT_FULLSCREEN + LAYOUT_STABLE + IMMERSIVE_STICKY.
  */
+export function setFullscreen(): void {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    return;
+  }
+  activity.runOnUiThread(() => {
+    const current = UTSAndroid.getUniActivity();
+    if (current == null) {
+      return;
+    }
+    const win = current.getWindow();
+    win.addFlags(1024);
+    win.getDecorView().setSystemUiVisibility(5380);
+  });
+}
+
 export function setAwake(on: boolean): void {
   const activity = UTSAndroid.getUniActivity();
   if (activity == null) {

@@ -11,41 +11,46 @@
   </view>
 </template>
 
-<script setup lang="uts">
-import { ref } from "vue";
-import { getServer, setServer } from "../../common/config.uts";
-import { ensure } from "../../common/panel.uts";
+<script lang="uts">
+	import { getServer, setServer } from "../../common/config.uts"
+	import { ensure } from "../../common/panel.uts"
 
-const host = ref("");
-const port = ref("8765");
-
-onShow(() => {
-  const server = getServer();
-  host.value = server.host;
-  port.value = server.port;
-});
-
-function save(): void {
-  const hostText = host.value.trim();
-  const portText = `${port.value}`.trim();
-  const portNumber = parseInt(portText);
-  if (hostText == "" || isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
-    uni.showToast({
-      title: "请填写有效的 IP 和端口",
-      icon: "none",
-    });
-    return;
-  }
-  setServer(hostText, portText);
-  ensure();
-  uni.showToast({
-    title: "已保存",
-    icon: "none",
-  });
-  setTimeout(() => {
-    uni.navigateBack({});
-  }, 250);
-}
+	export default {
+		data() {
+			return {
+				host: "",
+				port: "8765"
+			}
+		},
+		onShow() {
+			const server = getServer()
+			this.host = server.host
+			this.port = server.port
+		},
+		methods: {
+			save() : void {
+				const hostText = this.host.trim()
+				const portText = `${this.port}`.trim()
+				const portNumber = parseInt(portText)
+				if (hostText == "" || isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
+					uni.showToast({
+						title: "请填写有效的 IP 和端口",
+						icon: "none"
+					})
+					return
+				}
+				setServer(hostText, portText)
+				ensure()
+				uni.showToast({
+					title: "已保存",
+					icon: "none"
+				})
+				setTimeout(() => {
+					uni.navigateBack({})
+				}, 250)
+			}
+		}
+	}
 </script>
 
 <style>

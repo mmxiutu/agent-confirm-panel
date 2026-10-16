@@ -1,24 +1,68 @@
 <template>
   <view class="page" :class="status">
     <view class="header">
-      <view class="topline">
-        <text v-if="connected" class="link">已连接</text>
-        <text v-else class="link down">连接断开</text>
-        <text class="gear" @click="openSettings">设置</text>
-      </view>
       <text class="status">{{ statusLabel }}</text>
+      <text v-if="showSource" class="source">{{ sourceLine }}</text>
       <text class="summary">{{ summaryText }}</text>
-      <text v-if="requestId != ''" class="request">{{ requestId }}</text>
+      <text v-if="requestId != '' && status != 'waiting_choice'" class="request">{{ requestId }}</text>
+      <scroll-view v-if="status == 'waiting_choice'" class="choices" direction="vertical">
+        <view v-for="(row, index) in rows" :key="index">
+          <text v-if="row.kind == 'prompt'" class="prompt">{{ row.text }}</text>
+          <text v-if="row.kind == 'prompt' && row.allowMultiple" class="hint">可多选</text>
+          <view v-if="row.kind == 'option'" :class="row.selected ? 'option option-on' : 'option'" @click="toggleRow(index)">
+            <text :class="row.selected ? 'option-mark option-mark-on' : 'option-mark'">{{ row.selected ? '●' : '○' }}</text>
+            <text :class="row.selected ? 'option-label option-label-on' : 'option-label'">{{ row.text }}</text>
+          </view>
+          <text v-if="row.kind == 'custom'" class="custom-label">自定义</text>
+          <input v-if="row.kind == 'custom'" class="custom" :value="row.text" placeholder="用自己的话补充" @input="onCustomInput($event, index)" />
+        </view>
+      </scroll-view>
     </view>
 
     <view v-if="detailOpen" class="detail">
-      <text class="detail-line">详情 {{ detailText }}</text>
-      <text class="detail-line">命令 {{ commandText }}</text>
-      <text class="detail-line">路径 {{ filePath }}</text>
-      <text class="detail-line" :class="riskLevel == 'high' ? 'danger' : ''">风险 {{ riskText }}</text>
+      <view class="detail-bar">
+        <text class="detail-title">详情</text>
+        <text class="detail-close" @click="closeDetail">收起</text>
+      </view>
+      <scroll-view class="detail-scroll" direction="vertical">
+        <text class="detail-line">说明 {{ detailText }}</text>
+        <text class="detail-line">会话 {{ conversationText }}</text>
+        <text class="detail-line">命令 {{ commandText }}</text>
+        <text class="detail-line">路径 {{ filePath }}</text>
+        <text v-if="riskLevel == 'high'" class="detail-line danger">风险 {{ riskText }}</text>
+        <text v-else class="detail-line">风险 {{ riskText }}</text>
+      </scroll-view>
     </view>
 
-    <view class="keys">
+    <view class="device">
+      <text class="device-text">{{ clockText }}</text>
+      <text class="device-text">{{ batteryText }}</text>
+    </view>
+    <view class="device-gap"></view>
+    <view v-if="status == 'waiting_choice'" class="keys">
+      <view class="key" @click="onSubmit">
+        <text class="mark">✓</text>
+        <text class="name">提交</text>
+      </view>
+      <view class="key" @click="onReject">
+        <text class="mark">×</text>
+        <text class="name">拒绝</text>
+      </view>
+      <view class="key" @click="onDetail">
+        <text class="mark">☰</text>
+        <text class="name">{{ detailOpen ? '收起' : '详情' }}</text>
+      </view>
+      <view class="key" @click="onStop">
+        <text class="mark">■</text>
+        <text class="name">终止</text>
+      </view>
+      <view class="key" @click="openSettings">
+        <text class="set-title">设置</text>
+        <text v-if="connected" class="set-state">[已连接]</text>
+        <text v-else class="set-state off">[未连接]</text>
+      </view>
+    </view>
+    <view v-else class="keys">
       <view class="key" @click="onApprove">
         <text class="mark">✓</text>
         <text class="name">同意</text>
@@ -29,127 +73,282 @@
       </view>
       <view class="key" @click="onDetail">
         <text class="mark">☰</text>
-        <text class="name">详情</text>
+        <text class="name">{{ detailOpen ? '收起' : '详情' }}</text>
       </view>
       <view class="key" @click="onStop">
         <text class="mark">■</text>
         <text class="name">终止</text>
       </view>
-      <view class="key" @click="onVoice">
-        <text class="mark">♪</text>
-        <text class="name">语音</text>
+      <view class="key" @click="openSettings">
+        <text class="set-title">设置</text>
+        <text v-if="connected" class="set-state">[已连接]</text>
+        <text v-else class="set-state off">[未连接]</text>
       </view>
     </view>
   </view>
 </template>
 
-<script setup lang="uts">
-import { ref } from "vue";
-import { ensure, playClick, sendAction, subscribe, vibrateShort } from "../../common/panel.uts";
+<script lang="uts">
+	import { currentClock, readBatteryPercent } from "../../common/device.uts"
+	import { ChoiceRow, ensure, sendAction, sendChoice, subscribe, vibrateShort } from "../../common/panel.uts"
 
-const connected = ref(false);
-const status = ref("idle");
-const statusLabel = ref("空闲");
-const summaryText = ref("等待 Agent 任务");
-const detailText = ref("无");
-const requestId = ref("");
-const commandText = ref("无");
-const filePath = ref("无");
-const riskLevel = ref("normal");
-const riskText = ref("普通");
-const detailOpen = ref(false);
-let unsubscribe: (() => void) | null = null;
+	let listening = false
+	let stopListen = () : void => {}
+	let deviceTimer : number = 0
 
-function riskName(level: string): string {
-  if (level == "low") return "低";
-  if (level == "high") return "高";
-  return "普通";
-}
+	function batteryLabel(percent : number) : string {
+		if (percent < 0) return "电量 --"
+		return "电量 " + percent.toString() + "%"
+	}
 
-function showOrEmpty(value: string): string {
-  if (value == "") return "无";
-  return value;
-}
+	function riskName(level : string) : string {
+		if (level == "low") return "低"
+		if (level == "high") return "高"
+		return "普通"
+	}
 
-onLoad(() => {
-  unsubscribe = subscribe((current) => {
-    connected.value = current.connected;
-    status.value = current.status;
-    statusLabel.value = current.statusLabel;
-    summaryText.value = current.summary == "" ? "等待 Agent 任务" : current.summary;
-    detailText.value = showOrEmpty(current.detail);
-    requestId.value = current.requestId;
-    commandText.value = showOrEmpty(current.command);
-    filePath.value = showOrEmpty(current.filePath);
-    riskLevel.value = current.riskLevel;
-    riskText.value = riskName(current.riskLevel);
-  });
-});
+	function showOrEmpty(value : string) : string {
+		if (value == "") return "无"
+		if (value.length <= 500) return value
+		return value.substring(0, 500) + "…"
+	}
 
-onShow(() => {
-  ensure();
-});
+	function sourceLabel(project : string, title : string, kind : string) : string {
+		let name = title
+		if (kind == "subagent" && title != "") {
+			name = "子任务 " + title
+		} else if (kind == "background" && title != "") {
+			name = "后台 " + title
+		}
+		if (project != "" && name != "") return project + " · " + name
+		if (name != "") return name
+		return project
+	}
 
-onUnload(() => {
-  if (unsubscribe != null) {
-    unsubscribe();
-    unsubscribe = null;
-  }
-});
+	function escapeJson(value : string) : string {
+		let result = ""
+		for (let i = 0; i < value.length; i++) {
+			const ch = value.substring(i, i + 1)
+			if (ch == "\\") result += "\\\\"
+			else if (ch == "\"") result += "\\\""
+			else if (ch == "\n") result += "\\n"
+			else if (ch == "\r") result += "\\r"
+			else result += ch
+		}
+		return result
+	}
 
-function feedback(): void {
-  playClick();
-  vibrateShort();
-}
+	function copyRow(item : ChoiceRow, selected : boolean, text : string) : ChoiceRow {
+		return {
+			kind: item.kind,
+			questionId: item.questionId,
+			optionId: item.optionId,
+			text: text,
+			selected: selected,
+			allowMultiple: item.allowMultiple
+		} as ChoiceRow
+	}
 
-function requirePending(): boolean {
-  if (connected.value && status.value == "waiting_confirm" && requestId.value != "") {
-    return true;
-  }
-  uni.showToast({
-    title: "当前没有待审批事项",
-    icon: "none",
-  });
-  return false;
-}
+	function buildAnswers(rows : Array<ChoiceRow>) : string | null {
+		let json = "["
+		let count = 0
+		let index = 0
+		while (index < rows.length) {
+			const head = rows[index]
+			if (head.kind != "prompt") {
+				index++
+				continue
+			}
+			const questionId = head.questionId
+			let optionJson = ""
+			let optionCount = 0
+			let custom = ""
+			index++
+			while (index < rows.length && rows[index].kind != "prompt") {
+				const row = rows[index]
+				if (row.kind == "option" && row.selected) {
+					if (optionCount > 0) optionJson += ","
+					optionJson += "\"" + escapeJson(row.optionId) + "\""
+					optionCount++
+				}
+				if (row.kind == "custom") {
+					custom = row.text.trim()
+				}
+				index++
+			}
+			if (optionCount == 0 && custom == "") {
+				return null
+			}
+			if (count > 0) json += ","
+			json += "{\"id\":\"" + escapeJson(questionId) + "\",\"option_ids\":[" + optionJson + "],\"custom\":\"" + escapeJson(custom) + "\"}"
+			count++
+		}
+		if (count == 0) return null
+		return json + "]"
+	}
 
-function onApprove(): void {
-  feedback();
-  if (!requirePending()) return;
-  sendAction("approve", "");
-}
-
-function onReject(): void {
-  feedback();
-  if (!requirePending()) return;
-  sendAction("reject", "");
-}
-
-function onStop(): void {
-  feedback();
-  if (!requirePending()) return;
-  sendAction("stop_task", "");
-}
-
-function onDetail(): void {
-  feedback();
-  detailOpen.value = !detailOpen.value;
-  if (requestId.value != "") {
-    sendAction("view_detail", "");
-  }
-}
-
-function onVoice(): void {
-  feedback();
-  uni.showToast({
-    title: "语音监听尚未实现",
-    icon: "none",
-  });
-}
-
-function openSettings(): void {
-  uni.navigateTo({ url: "/pages/settings/settings" });
-}
+	export default {
+		data() {
+			return {
+				connected: false,
+				status: "idle",
+				statusLabel: "空闲",
+				summaryText: "等待 Agent 任务",
+				detailText: "无",
+				requestId: "",
+				commandText: "无",
+				filePath: "无",
+				riskLevel: "normal",
+				riskText: "普通",
+				detailOpen: false,
+				clockText: "--:--",
+				batteryText: "电量 --",
+				showSource: false,
+				sourceLine: "",
+				conversationText: "无",
+				rows: [] as Array<ChoiceRow>,
+				choiceRequestId: ""
+			}
+		},
+		onLoad() {
+			const that = this
+			const refreshDevice = () : void => {
+				that.clockText = currentClock()
+				that.batteryText = batteryLabel(readBatteryPercent())
+			}
+			refreshDevice()
+			deviceTimer = setInterval(refreshDevice, 10000)
+			stopListen = subscribe((current) : void => {
+				that.connected = current.connected
+				that.status = current.status
+				that.statusLabel = current.statusLabel
+				that.summaryText = current.summary == "" ? "等待 Agent 任务" : current.summary
+				that.detailText = showOrEmpty(current.detail)
+				that.requestId = current.requestId
+				that.commandText = showOrEmpty(current.command)
+				that.filePath = showOrEmpty(current.filePath)
+				that.riskLevel = current.riskLevel
+				that.riskText = riskName(current.riskLevel)
+				const pending = current.status == "waiting_confirm" || current.status == "waiting_choice"
+				that.sourceLine = pending ? sourceLabel(current.sourceProject, current.sourceTitle, current.sourceKind) : ""
+				that.showSource = that.sourceLine != ""
+				that.conversationText = current.sourceConversationId == "" ? "无" : current.sourceConversationId
+				if (current.status == "waiting_choice" && current.requestId != that.choiceRequestId) {
+					that.choiceRequestId = current.requestId
+					that.rows = current.choiceRows
+				}
+				if (current.status != "waiting_choice") {
+					that.choiceRequestId = ""
+					that.rows = [] as Array<ChoiceRow>
+				}
+			})
+			listening = true
+		},
+		onShow() {
+			ensure()
+		},
+		onUnload() {
+			if (deviceTimer != 0) {
+				clearInterval(deviceTimer)
+				deviceTimer = 0
+			}
+			if (listening) {
+				stopListen()
+				listening = false
+			}
+		},
+		methods: {
+			feedback() : void {
+				vibrateShort()
+			},
+			requirePending() : boolean {
+				const waiting = this.status == "waiting_confirm" || this.status == "waiting_choice"
+				if (this.connected && waiting && this.requestId != "") {
+					return true
+				}
+				uni.showToast({
+					title: "当前没有待审批事项",
+					icon: "none"
+				})
+				return false
+			},
+			toggleRow(index : number) : void {
+				if (index < 0 || index >= this.rows.length) return
+				const row = this.rows[index]
+				if (row.kind != "option") return
+				const turningOn = !row.selected
+				const next : Array<ChoiceRow> = []
+				for (let i = 0; i < this.rows.length; i++) {
+					const item = this.rows[i]
+					let selected = item.selected
+					if (!row.allowMultiple && turningOn && item.kind == "option" && item.questionId == row.questionId) {
+						selected = false
+					}
+					if (i == index) selected = turningOn
+					next.push(copyRow(item, selected, item.text))
+				}
+				this.rows = next
+				this.feedback()
+			},
+			onCustomInput(event : UniInputEvent, index : number) : void {
+				if (index < 0 || index >= this.rows.length) return
+				const next : Array<ChoiceRow> = []
+				for (let i = 0; i < this.rows.length; i++) {
+					const item = this.rows[i]
+					const text = i == index ? event.detail.value : item.text
+					next.push(copyRow(item, item.selected, text))
+				}
+				this.rows = next
+			},
+			onSubmit() : void {
+				this.feedback()
+				if (!this.connected || this.status != "waiting_choice" || this.requestId == "") {
+					uni.showToast({ title: "当前没有待选择事项", icon: "none" })
+					return
+				}
+				const answers = buildAnswers(this.rows)
+				if (answers == null) {
+					uni.showToast({ title: "请为每道题选择一项或填写自定义", icon: "none" })
+					return
+				}
+				if (!sendChoice(answers)) {
+					uni.showToast({ title: "发送失败", icon: "none" })
+				}
+			},
+			onApprove() : void {
+				this.feedback()
+				if (!this.connected || this.status != "waiting_confirm" || this.requestId == "") {
+					uni.showToast({ title: "当前没有待审批事项", icon: "none" })
+					return
+				}
+				sendAction("approve", "")
+			},
+			onReject() : void {
+				this.feedback()
+				if (!this.requirePending()) return
+				sendAction("reject", "")
+			},
+			onStop() : void {
+				this.feedback()
+				if (!this.requirePending()) return
+				sendAction("stop_task", "")
+			},
+			closeDetail() : void {
+				this.detailOpen = false
+			},
+			onDetail() : void {
+				this.feedback()
+				this.detailOpen = !this.detailOpen
+				if (this.requestId != "") {
+					sendAction("view_detail", "")
+				}
+			},
+			openSettings() : void {
+				this.feedback()
+				uni.navigateTo({ url: "/pages/settings/settings" })
+			}
+		}
+	}
 </script>
 
 <style>
@@ -161,6 +360,10 @@ function openSettings(): void {
 
 .waiting_confirm {
   background-color: #8a2e12;
+}
+
+.waiting_choice {
+  background-color: #6a4a12;
 }
 
 .error {
@@ -197,30 +400,10 @@ function openSettings(): void {
 
 .header {
   flex: 1;
-  padding: 24px 18px 12px 18px;
+  padding-right: 18px;
+  padding-left: 18px;
   flex-direction: column;
-}
-
-.topline {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.link {
-  font-size: 14px;
-  color: #f5f5f5;
-}
-
-.down {
-  color: #ffd0d0;
-  font-weight: 700;
-}
-
-.gear {
-  font-size: 14px;
-  color: #f5f5f5;
-  padding: 6px 4px;
+  overflow: hidden;
 }
 
 .status {
@@ -230,10 +413,84 @@ function openSettings(): void {
   color: #f5f5f5;
 }
 
+.source {
+  margin-top: 10px;
+  font-size: 16px;
+  color: #ffd27a;
+}
+
 .summary {
   margin-top: 14px;
   font-size: 18px;
   color: #f5f5f5;
+}
+
+.choices {
+  flex: 1;
+  margin-top: 12px;
+}
+
+.prompt {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  font-size: 18px;
+  color: #f5f5f5;
+}
+
+.hint {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #ffd27a;
+}
+
+.option {
+  flex-direction: row;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  background-color: rgba(0, 0, 0, 0.28);
+  border: 1px solid #000000;
+}
+
+.option-on {
+  background-color: #f5f5f5;
+}
+
+.option-mark {
+  width: 24px;
+  font-size: 18px;
+  color: #f5f5f5;
+}
+
+.option-mark-on {
+  color: #1a1a1a;
+}
+
+.option-label {
+  flex: 1;
+  font-size: 16px;
+  color: #f5f5f5;
+}
+
+.option-label-on {
+  color: #1a1a1a;
+}
+
+.custom-label {
+  margin-top: 4px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #ffd27a;
+}
+
+.custom {
+  height: 40px;
+  margin-bottom: 14px;
+  padding: 0 12px;
+  background-color: #141414;
+  color: #f5f5f5;
+  font-size: 16px;
+  border: 1px solid #000000;
 }
 
 .request {
@@ -244,17 +501,42 @@ function openSettings(): void {
 }
 
 .detail {
+  height: 220px;
   margin: 0 12px 12px 12px;
   padding: 12px;
-  background-color: rgba(0, 0, 0, 0.35);
+  background-color: #141414;
   border: 1px solid #000000;
   flex-direction: column;
 }
 
+.detail-bar {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.detail-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f5;
+}
+
+.detail-close {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffd27a;
+  padding: 4px 2px;
+}
+
+.detail-scroll {
+  flex: 1;
+}
+
 .detail-line {
   font-size: 14px;
-  line-height: 22px;
   color: #f5f5f5;
+  margin-bottom: 8px;
 }
 
 .danger {
@@ -262,10 +544,29 @@ function openSettings(): void {
   font-weight: 700;
 }
 
+.device {
+  height: 28px;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.device-text {
+  font-size: 16px;
+  color: #f5f5f5;
+}
+
+.device-gap {
+  height: 30px;
+}
+
 .keys {
   height: 110px;
   flex-direction: row;
   border-top: 2px solid #000000;
+  flex-shrink: 0;
 }
 
 .key {
@@ -286,5 +587,20 @@ function openSettings(): void {
   margin-top: 6px;
   font-size: 13px;
   color: #f5f5f5;
+}
+
+.set-title {
+  font-size: 15px;
+  color: #f5f5f5;
+  font-weight: 700;
+}
+
+.set-state {
+  font-size: 12px;
+  color: #f5f5f5;
+}
+
+.off {
+  color: #ffd0d0;
 }
 </style>

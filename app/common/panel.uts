@@ -1,5 +1,19 @@
+import Context from "android.content.Context";
+import Ringtone from "android.media.Ringtone";
+import RingtoneManager from "android.media.RingtoneManager";
+import VibrationEffect from "android.os.VibrationEffect";
+import Vibrator from "android.os.Vibrator";
 import { getServer } from "./config.uts";
 import { setAwake } from "./awake.uts";
+
+export type ChoiceRow = {
+  kind: string;
+  questionId: string;
+  optionId: string;
+  text: string;
+  selected: boolean;
+  allowMultiple: boolean;
+};
 
 export type PanelSnapshot = {
   connected: boolean;
@@ -12,6 +26,11 @@ export type PanelSnapshot = {
   filePath: string;
   riskLevel: string;
   tool: string;
+  sourceTitle: string;
+  sourceProject: string;
+  sourceConversationId: string;
+  sourceKind: string;
+  choiceRows: ChoiceRow[];
 };
 
 type PanelListener = (snap: PanelSnapshot) => void;
@@ -25,6 +44,11 @@ let commandText = "";
 let filePath = "";
 let riskLevel = "normal";
 let toolName = "";
+let sourceTitle = "";
+let sourceProject = "";
+let sourceConversationId = "";
+let sourceKind = "";
+let choiceRows: ChoiceRow[] = [];
 
 const listeners: PanelListener[] = [];
 let reconnectTimer: number = 0;
@@ -32,15 +56,16 @@ let socketOpen = false;
 let connecting = false;
 let activeUrl = "";
 let wantConnect = false;
-let audio: InnerAudioContext | null = null;
 let socketTask: SocketTask | null = null;
+let alertTone: Ringtone | null = null;
 
 function labelOf(value: string): string {
   if (value == "thinking") return "思考中";
   if (value == "outputting") return "输出中";
   if (value == "waiting_confirm") return "等待审批";
+  if (value == "waiting_choice") return "等待选择";
   if (value == "running") return "执行中";
-  if (value == "done") return "已完成";
+  if (value == "done") return "执行完毕";
   if (value == "error") return "异常";
   if (value == "timeout") return "审批超时";
   if (value == "rejected") return "已拒绝";
@@ -60,6 +85,11 @@ function snapshot(): PanelSnapshot {
     filePath: filePath,
     riskLevel: riskLevel,
     tool: toolName,
+    sourceTitle: sourceTitle,
+    sourceProject: sourceProject,
+    sourceConversationId: sourceConversationId,
+    sourceKind: sourceKind,
+    choiceRows: choiceRows,
   };
 }
 
@@ -83,17 +113,98 @@ function readString(obj: UTSJSONObject, key: string): string {
   return `${value}`;
 }
 
-function applyMessage(text: string): void {
-  let parsed: any = null;
+function readBool(obj: UTSJSONObject, key: string): boolean {
+  return obj[key] == true;
+}
+
+function emptyRows(): ChoiceRow[] {
+  const rows: ChoiceRow[] = [];
+  return rows;
+}
+
+function parseChoiceRows(extra: UTSJSONObject): ChoiceRow[] {
+  const rows = emptyRows();
+  const raw = extra["questions"];
+  if (raw == null) {
+    return rows;
+  }
+  let list: Array<UTSJSONObject> | null = null;
   try {
-    parsed = JSON.parse(text);
+    list = raw as Array<UTSJSONObject>;
+  } catch (error) {
+    return rows;
+  }
+  if (list == null) {
+    return rows;
+  }
+  for (let q = 0; q < list.length; q++) {
+    const question = list[q];
+    if (question == null) {
+      continue;
+    }
+    const questionId = readString(question, "id");
+    const prompt = readString(question, "prompt");
+    if (questionId == "" || prompt == "") {
+      continue;
+    }
+    const allowMultiple = readBool(question, "allow_multiple");
+    rows.push({
+      kind: "prompt",
+      questionId: questionId,
+      optionId: "",
+      text: prompt,
+      selected: false,
+      allowMultiple: allowMultiple,
+    } as ChoiceRow);
+    const optionsRaw = question["options"];
+    if (optionsRaw != null) {
+      const options = optionsRaw as Array<UTSJSONObject>;
+      for (let o = 0; o < options.length; o++) {
+        const option = options[o];
+        if (option == null) {
+          continue;
+        }
+        const optionId = readString(option, "id");
+        const label = readString(option, "label");
+        if (optionId == "" || label == "") {
+          continue;
+        }
+        rows.push({
+          kind: "option",
+          questionId: questionId,
+          optionId: optionId,
+          text: label,
+          selected: false,
+          allowMultiple: allowMultiple,
+        } as ChoiceRow);
+      }
+    }
+    rows.push({
+      kind: "custom",
+      questionId: questionId,
+      optionId: "",
+      text: "",
+      selected: false,
+      allowMultiple: allowMultiple,
+    } as ChoiceRow);
+  }
+  return rows;
+}
+
+function applyMessage(text: string): void {
+  let message: UTSJSONObject | null = null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed == null) {
+      return;
+    }
+    message = parsed as UTSJSONObject;
   } catch (error) {
     return;
   }
-  if (parsed == null) {
+  if (message == null) {
     return;
   }
-  const message = parsed as UTSJSONObject;
   if (readString(message, "type") != "state_update") {
     return;
   }
@@ -102,13 +213,16 @@ function applyMessage(text: string): void {
     return;
   }
   const payload = payloadValue as UTSJSONObject;
-  status = readString(payload, "status");
+  const nextStatus = readString(payload, "status");
+  const nextRequestId = readString(payload, "request_id");
+  const incoming = (nextStatus == "waiting_confirm" || nextStatus == "waiting_choice") && nextRequestId != "" && nextRequestId != requestId;
+  status = nextStatus;
   if (status == "") {
     status = "idle";
   }
   summary = readString(payload, "summary");
   detailText = readString(payload, "detail");
-  requestId = readString(payload, "request_id");
+  requestId = nextRequestId;
   const extraValue = payload["extra"];
   if (extraValue != null) {
     const extra = extraValue as UTSJSONObject;
@@ -119,8 +233,42 @@ function applyMessage(text: string): void {
       riskLevel = "normal";
     }
     toolName = readString(extra, "tool");
+    sourceTitle = "";
+    sourceProject = "";
+    sourceConversationId = "";
+    sourceKind = "";
+    choiceRows = emptyRows();
+    const sourceValue = extra["source"];
+    if (sourceValue != null) {
+      try {
+        const source = sourceValue as UTSJSONObject;
+        sourceTitle = readString(source, "title");
+        sourceProject = readString(source, "project");
+        sourceConversationId = readString(source, "conversation_id");
+        sourceKind = readString(source, "kind");
+      } catch (error) {
+        sourceTitle = "";
+      }
+    }
+    if (status == "waiting_choice") {
+      try {
+        choiceRows = parseChoiceRows(extra);
+      } catch (error) {
+        choiceRows = emptyRows();
+      }
+    }
+  } else {
+    sourceTitle = "";
+    sourceProject = "";
+    sourceConversationId = "";
+    sourceKind = "";
+    choiceRows = emptyRows();
   }
   emit();
+  if (incoming) {
+    playAlert();
+    vibrateAlert();
+  }
 }
 
 function scheduleReconnect(): void {
@@ -202,16 +350,36 @@ export function ensure(): void {
   if ((socketOpen || connecting) && nextUrl == activeUrl) {
     return;
   }
-  if (socketOpen && socketTask != null) {
+  const closing = socketTask;
+  if (socketOpen && closing != null) {
     activeUrl = nextUrl;
-    socketTask.close({});
+    closing.close({});
     return;
   }
   openSocket();
 }
 
+export function sendChoice(answersJson: string): boolean {
+  const task = socketTask;
+  if (!socketOpen || task == null) {
+    return false;
+  }
+  const body = {
+    type: "user_action",
+    request_id: requestId,
+    action: "choose",
+    remark: "",
+    answers: answersJson,
+  } as UTSJSONObject;
+  task.send({
+    data: JSON.stringify(body),
+  });
+  return true;
+}
+
 export function sendAction(action: string, remark: string): boolean {
-  if (!socketOpen || socketTask == null) {
+  const task = socketTask;
+  if (!socketOpen || task == null) {
     return false;
   }
   const body = {
@@ -220,21 +388,76 @@ export function sendAction(action: string, remark: string): boolean {
     action: action,
     remark: remark,
   } as UTSJSONObject;
-  socketTask.send({
+  task.send({
     data: JSON.stringify(body),
   });
   return true;
 }
 
-export function playClick(): void {
-  if (audio == null) {
-    audio = uni.createInnerAudioContext();
-    audio.src = "/static/click.wav";
+function systemVibrator(): Vibrator | null {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    return null;
   }
-  audio.stop();
-  audio.play();
+  const service = activity.getSystemService(Context.VIBRATOR_SERVICE);
+  if (service == null) {
+    return null;
+  }
+  return service as Vibrator;
+}
+
+function pulse(predefined: number, fallbackMs: number): void {
+  const vibrator = systemVibrator();
+  if (vibrator == null) {
+    return;
+  }
+  const effectId = predefined.toInt();
+  const duration = fallbackMs.toLong();
+  try {
+    vibrator.vibrate(VibrationEffect.createPredefined(effectId));
+  } catch (error) {
+    try {
+      vibrator.vibrate(VibrationEffect.createOneShot(duration, 255));
+    } catch (fallbackError) {
+      vibrator.vibrate(duration);
+    }
+  }
+}
+
+export function playAlert(): void {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    return;
+  }
+  const uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+  if (uri == null) {
+    return;
+  }
+  const playing = alertTone;
+  if (playing != null) {
+    playing.stop();
+  }
+  const tone = RingtoneManager.getRingtone(activity, uri);
+  if (tone == null) {
+    return;
+  }
+  alertTone = tone;
+  tone.play();
+}
+
+export function vibrateAlert(): void {
+  pulse(1, 40);
 }
 
 export function vibrateShort(): void {
-  uni.vibrateShort({});
+  const vibrator = systemVibrator();
+  if (vibrator == null) {
+    return;
+  }
+  const duration = (45).toLong();
+  try {
+    vibrator.vibrate(VibrationEffect.createOneShot(duration, 255));
+  } catch (error) {
+    vibrator.vibrate(duration);
+  }
 }

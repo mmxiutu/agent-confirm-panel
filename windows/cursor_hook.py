@@ -13,10 +13,18 @@ import sys
 import urllib.error
 import urllib.request
 
+from panel_proto import project_name, question_key, sanitize_questions
+
 PUSH_URL = "http://127.0.0.1:8765/push"
 STATUS_URL = "http://127.0.0.1:8765/status"
+SESSION_URL = "http://127.0.0.1:8765/session"
+SUBAGENT_URL = "http://127.0.0.1:8765/subagent"
+SOURCE_URL = "http://127.0.0.1:8765/source"
 HTTP_TIMEOUT_SECONDS = 175
 STATUS_TIMEOUT_SECONDS = 2
+NOTE_TIMEOUT_SECONDS = 0.4
+PANEL_MCP_SERVER = "agent-confirm-panel"
+PANEL_ASK_TOOL = "ask"
 HIGH_RISK_MARKERS = (
     "rm ",
     "rm\t",
@@ -48,6 +56,64 @@ def risk_level(command: str) -> str:
     return "normal"
 
 
+def parse_tool_input(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def raw_source(hook_input: dict) -> dict:
+    conversation_id = str(hook_input.get("conversation_id") or hook_input.get("session_id") or "")
+    subagent_id = str(hook_input.get("subagent_id") or "")
+    kind = "chat"
+    if subagent_id:
+        kind = "subagent"
+        conversation_id = subagent_id
+    elif hook_input.get("is_background_agent") is True:
+        kind = "background"
+    return {
+        "conversation_id": conversation_id,
+        "parent_conversation_id": str(hook_input.get("parent_conversation_id") or ""),
+        "project": project_name(hook_input.get("workspace_roots"), str(hook_input.get("cwd") or "")),
+        "kind": kind,
+        "transcript_path": str(hook_input.get("transcript_path") or ""),
+        "task": str(hook_input.get("task") or ""),
+    }
+
+
+def is_panel_ask(hook_input: dict) -> bool:
+    return (
+        str(hook_input.get("mcp_server_name") or "") == PANEL_MCP_SERVER
+        and str(hook_input.get("tool_name") or "") == PANEL_ASK_TOOL
+    )
+
+
+def post_json(url: str, body: dict, timeout: float) -> dict:
+    raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=raw,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def note(url: str, body: dict) -> None:
+    try:
+        post_json(url, body, NOTE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        sys.stderr.write(f"panel note skipped: {exc}\n")
+
+
 def build_push(hook_input: dict) -> dict:
     tool_name = hook_input.get("tool_name")
     if tool_name:
@@ -66,6 +132,7 @@ def build_push(hook_input: dict) -> dict:
                 "risk_level": "normal",
                 "tool": "mcp",
                 "mcp_server_name": server_name,
+                "source": raw_source(hook_input),
             },
         }
 
@@ -80,6 +147,7 @@ def build_push(hook_input: dict) -> dict:
             "file_path": cwd,
             "risk_level": risk_level(command),
             "tool": "shell",
+            "source": raw_source(hook_input),
         },
     }
 
@@ -100,16 +168,80 @@ def panel_is_ready() -> bool:
     return clients > 0
 
 
-def push(body: dict) -> dict:
-    raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        PUSH_URL,
-        data=raw,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST",
+def push(body: dict, timeout: float = HTTP_TIMEOUT_SECONDS) -> dict:
+    return post_json(PUSH_URL, body, timeout)
+
+
+def register_session(hook_input: dict) -> None:
+    note(
+        SESSION_URL,
+        {
+            "conversation_id": str(hook_input.get("session_id") or hook_input.get("conversation_id") or ""),
+            "project": project_name(hook_input.get("workspace_roots"), str(hook_input.get("cwd") or "")),
+            "kind": "background" if hook_input.get("is_background_agent") is True else "chat",
+            "transcript_path": str(hook_input.get("transcript_path") or ""),
+        },
     )
-    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-        return json.loads(response.read().decode("utf-8"))
+    sys.stdout.write("{}\n")
+    sys.stdout.flush()
+
+
+def register_subagent(hook_input: dict) -> None:
+    note(
+        SUBAGENT_URL,
+        {
+            "subagent_id": str(hook_input.get("subagent_id") or ""),
+            "parent_conversation_id": str(
+                hook_input.get("parent_conversation_id") or hook_input.get("conversation_id") or ""
+            ),
+            "project": project_name(hook_input.get("workspace_roots"), str(hook_input.get("cwd") or "")),
+            "task": str(hook_input.get("task") or ""),
+        },
+    )
+    emit("allow")
+
+
+def allow_panel_ask(hook_input: dict) -> None:
+    questions = sanitize_questions(parse_tool_input(hook_input.get("tool_input")).get("questions"))
+    if questions:
+        note(SOURCE_URL, {"key": question_key(questions), "source": raw_source(hook_input)})
+    emit("allow")
+
+
+def report_finished(hook_input: dict) -> None:
+    if is_panel_ask(hook_input):
+        return
+    event = str(hook_input.get("hook_event_name") or "")
+    if event == "afterMCPExecution":
+        tool_name = str(hook_input.get("tool_name") or "")
+        server_name = str(hook_input.get("mcp_server_name") or "")
+        summary = f"MCP {server_name} / {tool_name}".strip()
+        detail = str(hook_input.get("result_json") or "")[:800]
+        command = tool_name
+        tool = "mcp"
+    else:
+        command = str(hook_input.get("command") or "")
+        summary = command[:180] or "命令"
+        detail = str(hook_input.get("output") or "")[:800]
+        tool = "shell"
+    if not panel_is_ready():
+        return
+    body = {
+        "status": "done",
+        "summary": summary,
+        "detail": detail,
+        "extra": {
+            "command": command,
+            "file_path": "",
+            "risk_level": "normal",
+            "tool": tool,
+            "source": raw_source(hook_input),
+        },
+    }
+    try:
+        push(body, timeout=5)
+    except Exception as exc:
+        sys.stderr.write(f"panel completion skipped: {exc}\n")
 
 
 def read_hook_input() -> dict:
@@ -152,6 +284,19 @@ def main() -> None:
         return
     if not isinstance(hook_input, dict):
         emit("deny", "审批钩子输入格式不正确，已拒绝。")
+        return
+    event = str(hook_input.get("hook_event_name") or "")
+    if event == "sessionStart":
+        register_session(hook_input)
+        return
+    if event == "subagentStart":
+        register_subagent(hook_input)
+        return
+    if event in ("afterShellExecution", "afterMCPExecution"):
+        report_finished(hook_input)
+        return
+    if is_panel_ask(hook_input):
+        allow_panel_ask(hook_input)
         return
     if is_panel_server_launch(hook_input):
         emit("allow")

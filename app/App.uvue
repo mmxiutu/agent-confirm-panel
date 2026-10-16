@@ -1,10 +1,19 @@
-<script setup lang="uts">
-onLaunch(() => {});
+<script lang="uts">
+	import { setFullscreen } from "./common/awake.uts"
+
+	export default {
+		onLaunch() {
+			setFullscreen()
+		},
+		onShow() {
+			setFullscreen()
+		}
+	}
 </script>
 
 <style>
-.page {
-  flex: 1;
-  background-color: #050505;
-}
+	.page {
+		flex: 1;
+		background-color: #050505;
+	}
 </style>
