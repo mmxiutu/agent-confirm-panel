@@ -34,6 +34,7 @@ export type PanelSnapshot = {
 };
 
 type PanelListener = (snap: PanelSnapshot) => void;
+type VoiceResultListener = (ok: boolean, message: string) => void;
 
 let connected = false;
 let status = "idle";
@@ -51,6 +52,7 @@ let sourceKind = "";
 let choiceRows: ChoiceRow[] = [];
 
 const listeners: PanelListener[] = [];
+let voiceResultListener: VoiceResultListener | null = null;
 let reconnectTimer: number = 0;
 let socketOpen = false;
 let connecting = false;
@@ -205,6 +207,13 @@ function applyMessage(text: string): void {
   if (message == null) {
     return;
   }
+  if (readString(message, "type") == "voice_result") {
+    const listener = voiceResultListener;
+    if (listener != null) {
+      listener(readBool(message, "ok"), readString(message, "message"));
+    }
+    return;
+  }
   if (readString(message, "type") != "state_update") {
     return;
   }
@@ -331,6 +340,10 @@ function openSocket(): void {
   });
   socketTask = task;
   bindSocket(task);
+}
+
+export function watchVoice(listener: VoiceResultListener): void {
+  voiceResultListener = listener;
 }
 
 export function subscribe(listener: PanelListener): () => void {

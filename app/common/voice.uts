@@ -1,0 +1,177 @@
+import Intent from "android.content.Intent";
+import Bundle from "android.os.Bundle";
+import RecognitionListener from "android.speech.RecognitionListener";
+import SpeechRecognizer from "android.speech.SpeechRecognizer";
+
+type VoiceText = (text: string) => void;
+type VoiceFail = (message: string) => void;
+
+let armed = false;
+let finished = false;
+let lastPartial = "";
+let textCallback: VoiceText | null = null;
+let failCallback: VoiceFail | null = null;
+let recognizer: SpeechRecognizer | null = null;
+
+function errorText(code: Int): string {
+  const value = code.toString();
+  if (value == "6" || value == "7") return "没有识别到语音";
+  if (value == "9") return "请允许使用麦克风";
+  return "语音识别失败";
+}
+
+function readBest(results: Bundle | null): string {
+  if (results == null) {
+    return "";
+  }
+  const list = results.getStringArrayList("results_recognition");
+  if (list == null || list.size == 0) {
+    return "";
+  }
+  const value = list.get(0);
+  if (value == null) {
+    return "";
+  }
+  return value;
+}
+
+function destroyRecognizer(): void {
+  const current = recognizer;
+  recognizer = null;
+  if (current == null) {
+    return;
+  }
+  current.cancel();
+  current.destroy();
+}
+
+function finishOk(text: string): void {
+  if (finished) {
+    return;
+  }
+  finished = true;
+  armed = false;
+  const callback = textCallback;
+  textCallback = null;
+  failCallback = null;
+  destroyRecognizer();
+  if (callback != null) {
+    callback(text);
+  }
+}
+
+function failNow(message: string): void {
+  if (finished) {
+    return;
+  }
+  finished = true;
+  armed = false;
+  const callback = failCallback;
+  textCallback = null;
+  failCallback = null;
+  destroyRecognizer();
+  if (callback != null) {
+    callback(message);
+  }
+}
+
+class VoiceListener implements RecognitionListener {
+  override onReadyForSpeech(_params: Bundle | null): void {}
+  override onBeginningOfSpeech(): void {}
+  override onRmsChanged(_rmsdB: Float): void {}
+  override onBufferReceived(_buffer: ByteArray | null): void {}
+  override onEndOfSpeech(): void {}
+  override onError(error: Int): void {
+    if (lastPartial != "") {
+      finishOk(lastPartial);
+      return;
+    }
+    failNow(errorText(error));
+  }
+  override onResults(results: Bundle | null): void {
+    const text = readBest(results);
+    if (text != "") {
+      finishOk(text);
+      return;
+    }
+    finishOk(lastPartial);
+  }
+  override onPartialResults(partialResults: Bundle | null): void {
+    const text = readBest(partialResults);
+    if (text != "") {
+      lastPartial = text;
+    }
+  }
+  override onEvent(_eventType: Int, _params: Bundle | null): void {}
+}
+
+function beginListening(): void {
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    failNow("无法使用麦克风");
+    return;
+  }
+  activity.runOnUiThread((): void => {
+    if (!armed || finished) {
+      return;
+    }
+    if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+      failNow("这台手机没有语音识别");
+      return;
+    }
+    destroyRecognizer();
+    const created = SpeechRecognizer.createSpeechRecognizer(activity);
+    created.setRecognitionListener(new VoiceListener());
+    recognizer = created;
+    const intent = new Intent("android.speech.action.RECOGNIZE_SPEECH");
+    intent.putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form");
+    intent.putExtra("android.speech.extra.LANGUAGE", "zh-CN");
+    intent.putExtra("android.speech.extra.PARTIAL_RESULTS", true);
+    intent.putExtra("android.speech.extra.MAX_RESULTS", (1).toInt());
+    created.startListening(intent);
+  });
+}
+
+export function startVoice(onText: VoiceText, onFail: VoiceFail): void {
+  finished = true;
+  destroyRecognizer();
+  armed = true;
+  finished = false;
+  lastPartial = "";
+  textCallback = onText;
+  failCallback = onFail;
+  const activity = UTSAndroid.getUniActivity();
+  if (activity == null) {
+    failNow("无法使用麦克风");
+    return;
+  }
+  const permissions = ["android.permission.RECORD_AUDIO"];
+  if (UTSAndroid.checkSystemPermissionGranted(activity, permissions)) {
+    beginListening();
+    return;
+  }
+  UTSAndroid.requestSystemPermission(activity, permissions, function (allRight : boolean, _granted : string[]) {
+    if (!allRight) {
+      failNow("请允许使用麦克风");
+      return;
+    }
+    if (!armed) {
+      return;
+    }
+    beginListening();
+  }, function (_doNotAskAgain : boolean, _granted : string[]) {
+    failNow("请在系统设置里允许麦克风");
+  });
+}
+
+export function stopVoice(): void {
+  const current = recognizer;
+  armed = false;
+  if (current != null) {
+    current.stopListening();
+    return;
+  }
+  if (!finished) {
+    failNow("没有识别到语音");
+  }
+}

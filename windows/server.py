@@ -28,6 +28,7 @@ from panel_proto import (
     short_title,
     title_from_transcript,
 )
+from voice_paste import paste_into_cursor
 
 HOST = "0.0.0.0"
 PORT = 8765
@@ -136,6 +137,9 @@ class Panel:
 
     async def broadcast(self, message: str) -> None:
         self.last_message = message
+        await self.notify(message)
+
+    async def notify(self, message: str) -> None:
         dead: list[Connection] = []
         for client in list(self.clients):
             try:
@@ -178,6 +182,20 @@ class Panel:
             f"user_action source=websocket peer={peer} "
             f"request_id={request_id} action={action} remark={remark}"
         )
+        if action == "voice_input":
+            text = remark.strip()
+            if text == "":
+                log("voice_input empty")
+                await self.notify('{"type":"voice_result","ok":false,"message":"没有识别到语音"}')
+                return
+            reason = await asyncio.to_thread(paste_into_cursor, text)
+            ok = reason == ""
+            message = "已填入电脑" if ok else reason
+            log(f"voice_input ok={ok} chars={len(text)} reason={reason}")
+            await self.notify(
+                json.dumps({"type": "voice_result", "ok": ok, "message": message}, ensure_ascii=False)
+            )
+            return
         await self.decide(request_id, action, data)
 
     def register_session(self, body: dict) -> None:

@@ -52,9 +52,9 @@
         <text class="mark">☰</text>
         <text class="name">{{ detailOpen ? '收起' : '详情' }}</text>
       </view>
-      <view class="key" @click="onStop">
-        <text class="mark">■</text>
-        <text class="name">终止</text>
+      <view class="key" @touchstart="onVoiceDown" @touchend="onVoiceUp" @touchcancel="onVoiceUp">
+        <text class="mark">♪</text>
+        <text class="name">{{ voiceHold ? '聆听' : '语音' }}</text>
       </view>
       <view class="key" @click="openSettings">
         <text class="set-title">设置</text>
@@ -75,9 +75,9 @@
         <text class="mark">☰</text>
         <text class="name">{{ detailOpen ? '收起' : '详情' }}</text>
       </view>
-      <view class="key" @click="onStop">
-        <text class="mark">■</text>
-        <text class="name">终止</text>
+      <view class="key" @touchstart="onVoiceDown" @touchend="onVoiceUp" @touchcancel="onVoiceUp">
+        <text class="mark">♪</text>
+        <text class="name">{{ voiceHold ? '聆听' : '语音' }}</text>
       </view>
       <view class="key" @click="openSettings">
         <text class="set-title">设置</text>
@@ -90,7 +90,8 @@
 
 <script lang="uts">
 	import { currentClock, readBatteryPercent } from "../../common/device.uts"
-	import { ChoiceRow, ensure, sendAction, sendChoice, subscribe, vibrateShort } from "../../common/panel.uts"
+	import { ChoiceRow, ensure, sendAction, sendChoice, subscribe, vibrateShort, watchVoice } from "../../common/panel.uts"
+	import { startVoice, stopVoice } from "../../common/voice.uts"
 
 	let listening = false
 	let stopListen = () : void => {}
@@ -203,6 +204,7 @@
 				detailOpen: false,
 				clockText: "--:--",
 				batteryText: "电量 --",
+				voiceHold: false,
 				showSource: false,
 				sourceLine: "",
 				conversationText: "无",
@@ -218,6 +220,10 @@
 			}
 			refreshDevice()
 			deviceTimer = setInterval(refreshDevice, 10000)
+			watchVoice((ok : boolean, message : string) : void => {
+				const title = message != "" ? message : (ok ? "已填入电脑" : "没有填入电脑")
+				uni.showToast({ title: title, icon: "none" })
+			})
 			stopListen = subscribe((current) : void => {
 				that.connected = current.connected
 				that.status = current.status
@@ -328,10 +334,28 @@
 				if (!this.requirePending()) return
 				sendAction("reject", "")
 			},
-			onStop() : void {
+			onVoiceDown() : void {
+				if (this.voiceHold) return
+				this.voiceHold = true
 				this.feedback()
-				if (!this.requirePending()) return
-				sendAction("stop_task", "")
+				const that = this
+				startVoice((text : string) : void => {
+					that.voiceHold = false
+					if (text == "") {
+						uni.showToast({ title: "没有识别到语音", icon: "none" })
+						return
+					}
+					if (!sendAction("voice_input", text)) {
+						uni.showToast({ title: "发送失败", icon: "none" })
+					}
+				}, (message : string) : void => {
+					that.voiceHold = false
+					uni.showToast({ title: message, icon: "none" })
+				})
+			},
+			onVoiceUp() : void {
+				if (!this.voiceHold) return
+				stopVoice()
 			},
 			closeDetail() : void {
 				this.detailOpen = false
