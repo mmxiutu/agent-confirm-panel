@@ -1,9 +1,9 @@
 {
-	"name": "agent-confirm-panel",
-	"appid": "__UNI__A0C0F001",
+	"name": "Vibe确认",
+	"appid": "__UNI__F1BA47F",
 	"description": "Android agent approval panel",
-	"versionName": "0.1.0",
-	"versionCode": 100,
+	"versionName": "0.1.1",
+	"versionCode": "111",
 	"uni-app-x": {
 		"flex-direction": "column"
 	},
@@ -51,7 +51,12 @@
 			"modules": {
 				"uni-websocket": {}
 			},
-			"icons": {},
+			"icons": {
+				"hdpi": "D:/Workspace/UniApp/hbuilderx-icons/72x72.png",
+				"xhdpi": "D:/Workspace/UniApp/hbuilderx-icons/96x96.png",
+				"xxhdpi": "D:/Workspace/UniApp/hbuilderx-icons/144x144.png",
+				"xxxhdpi": "D:/Workspace/UniApp/hbuilderx-icons/192x192.png"
+			},
 			"splashScreens": {
 				"default": {}
 			}

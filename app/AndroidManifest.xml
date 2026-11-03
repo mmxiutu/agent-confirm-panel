@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <!-- Android 11+ 默认看不见其他应用的服务。不声明这项时，
+         SpeechRecognizer.isRecognitionAvailable() 在正式包里会返回 false。 -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
     <application
         android:usesCleartextTraffic="true"
         tools:replace="android:usesCleartextTraffic"
