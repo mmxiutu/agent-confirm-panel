@@ -1,0 +1,15 @@
+---
+description: 改 uni-app x 客户端时的运行方式和平台限制
+globs: app/**
+alwaysApply: false
+---
+
+# 手机端
+
+用 HBuilderX 打开 `app`。`manifest.json` 里有 `uni-app-x` 节点，项目应识别为 uni-app x（圆形图标）。若仍被识别成旧版 uni-app，在项目上右键选择重新识别项目类型。
+
+红米 Note 11T Pro 上运行时，选择 uni-app x 的 Android 标准基座，不要用旧的 uni-app 基座。连接使用局域网明文 `ws://`，`app/AndroidManifest.xml` 已允许安卓明文流量。
+
+iOS 和鸿蒙还没有跑过，要另选对应基座。常亮目前走的是安卓窗口标志，换平台时需要再核对。
+
+改了 `app/` 里的界面后，用 HBuilderX 重新运行到手机。网络、震动、电池优化和自动锁屏要在系统里手动打开，程序绕不过这些限制。

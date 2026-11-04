@@ -1,0 +1,16 @@
+---
+description: 本仓库的产品边界，以及改代码时不能改坏的行为
+alwaysApply: true
+---
+
+# 产品边界
+
+- 客户端在 `app/`，保持 uni-app x。不要改回旧版 uni-app，不要把目录改回 `android`，不要做网页版，不要引入 FastAPI。
+- 只拦截 Cursor Agent 的终端命令（`beforeShellExecution`）和 MCP 调用（`beforeMCPExecution`）。读文件、搜索、改文件不经过钩子。
+- 钩子、MCP、用户规则写在 Windows 用户目录：`hooks.json`、`mcp.json`、`rules/agent-confirm-panel.mdc`。不要写进某个项目的 `.cursor/hooks.json`。同一台电脑上的其他项目不要再改这三份文件，也不要在项目里再放一份钩子。
+- 换电脑时使用那台电脑自己的绝对路径。不要把这台机器的路径抄过去。启用步骤见 `setup-new-machine.mdc`。
+- 仅启动 `windows/server.py` 的命令直接 allow，避免服务停着时无法重新打开。
+- MCP 服务名必须是 `agent-confirm-panel`，工具名必须是 `ask`。这个工具直接 allow，不要再让手机批准一次。
+- 手机未连接时，钩子返回 `ask`，让 Cursor 走自己的确认。手机已连接时，同意返回 allow，拒绝、终止或超时返回 deny。
+- Hermes 不在本仓库范围内。语音按钮只占位，还不能识别指令。
+- 需要用户选择或自己写一句时，调用 `ask`。只有 `panel_offline`，或重试后仍是 `panel_busy`，才改用 AskQuestion。

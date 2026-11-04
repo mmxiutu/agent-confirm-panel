@@ -1,0 +1,19 @@
+---
+description: 在一台新电脑上启用 agent-confirm-panel，把钩子、MCP 和用户规则写进该电脑自己的用户目录
+alwaysApply: false
+---
+
+# 新电脑启用
+
+先克隆本仓库并安装 `windows/requirements.txt`。只改这台电脑的用户目录，不改 Cursor 程序本身。路径用这台电脑上的绝对路径。
+
+1. 用户目录 `hooks.json` 指向本仓库 `windows/cursor_hook.py`，用这台电脑的 `python.exe`。合并时保留已有钩子。事件和 timeout、failClosed 见 `windows-service.mdc`。
+2. `windows/server.py` 监听 `0.0.0.0:8765`。手机已连上时，同意返回 allow，拒绝、终止或超时返回 deny。服务没启动或没有手机时返回 `ask`，不要直接 deny。每次推送带上 `conversation_id`、项目名，并由服务从聊天记录取标题。
+3. 用户目录 `mcp.json` 注册 stdio 服务 `agent-confirm-panel`，指向 `windows/panel_mcp.py`。工具 `ask` 直接 allow。
+4. 用户目录规则要求：需要选择或自定义说明时调用 `ask`，不要调用 AskQuestion；`panel_offline` 或重试后仍 `panel_busy` 时再退回 AskQuestion。
+5. 仅启动 `windows/server.py` 的命令直接 allow。
+6. 不要引入 FastAPI，不要做网页版。客户端保持 `app/` 下的 uni-app x。
+
+同一台电脑上的新项目不要再改用户目录里的 `hooks.json`、`mcp.json` 和 `rules/agent-confirm-panel.mdc`。
+
+改完后说明：`hooks.json` 的位置、启动服务的命令、手机上要填的局域网 IP。

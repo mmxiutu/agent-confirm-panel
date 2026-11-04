@@ -1,0 +1,37 @@
+---
+description: 改电脑端服务、钩子或提问 MCP 时的重启方式和调试方法
+globs: windows/**
+alwaysApply: false
+---
+
+# 电脑端
+
+Python 3.13。依赖只有 `websockets`。`server.py` 自己接受 TCP：Upgrade 交给 websockets，带 body 的 HTTP 直接回答。websockets 16 会拒绝带 body 的 HTTP，所以不要改成纯 websockets 进程。
+
+监听 `0.0.0.0:8765`。`/action` 只接受本机。审批等待 170 秒，钩子和 `ask` 的 HTTP 超时是 175 秒。
+
+改完后：
+
+- `server.py`：关掉服务窗口再运行。正在跑的进程不会换成新代码。
+- `cursor_hook.py`：不用重启服务。下一次钩子会启动新的 Python 进程。
+- `panel_mcp.py`：在 Cursor 里重新加载 MCP。
+
+`start.bat` 写死了这台电脑的 Python 3.13 路径。换电脑时改成那台机器的 `python.exe`。
+
+用户目录 `hooks.json` 里这些事件都指向同一个 `windows/cursor_hook.py`。合并时保留已有钩子：
+
+- `beforeShellExecution`、`beforeMCPExecution`：timeout 180，failClosed true
+- `afterShellExecution`、`afterMCPExecution`：timeout 10，failClosed false
+- `sessionStart`、`subagentStart`：timeout 5，failClosed false。用来记住聊天和子任务的标题
+
+`mcp.json` 使用这台电脑的 `python.exe`，参数是 `-u` 和本仓库 `windows/panel_mcp.py` 的绝对路径。
+
+没有手机时，用本机模拟批准。`request_id` 看服务窗口日志：
+
+```bat
+curl.exe -X POST -H "Content-Type: application/json" -d "{\"request_id\":\"日志里的id\",\"action\":\"approve\"}" http://127.0.0.1:8765/action
+```
+
+`action` 还可以是 `reject`、`stop_task` 或 `choose`。`choose` 要带上 `answers`。
+
+直接 POST `/push` 时，服务不会替你读聊天记录。真实使用时，钩子带上 `conversation_id` 和记录路径，服务读取第一条用户消息作为标题，并按会话 id 缓存。

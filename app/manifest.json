@@ -2,8 +2,8 @@
 	"name": "Vibe确认",
 	"appid": "__UNI__F1BA47F",
 	"description": "Android agent approval panel",
-	"versionName": "0.1.1",
-	"versionCode": "111",
+	"versionName": "0.1.2",
+	"versionCode": "112",
 	"uni-app-x": {
 		"flex-direction": "column"
 	},
